@@ -402,7 +402,14 @@ Consequences to know about:
 
 ## License
 
-GPL-2.0, matching upstream Zabbix's own license — see [LICENSE](LICENSE).
+AGPL-3.0, matching upstream Zabbix 7.0's own license (Zabbix changed from GPL-2.0 to
+AGPL-3.0 with 7.0) — see [LICENSE](LICENSE). The tooling in this repository is under the same license.
+
+The AGPL applies to users who reach a modified program over a network (section 13):
+the images built here run the Zabbix front end with this repository's patches, so
+the corresponding source is this repository (the Zabbix source under `sources/` with
+the patches applied, plus the build files). Keep it publicly available alongside
+the published images.
 
 ## 7.0 build notes (verified against 7.0.32)
 

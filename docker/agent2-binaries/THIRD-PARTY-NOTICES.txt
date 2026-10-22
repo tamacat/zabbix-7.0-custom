@@ -1,8 +1,8 @@
 Third-party software in the zabbix_agent2 binaries
 ===================================================
 
-The Zabbix agent 2 source code is distributed under the GNU General Public License
-(see COPYING). The binaries in this archive are statically linked with the libraries
+The Zabbix agent 2 source code is distributed under the GNU Affero General Public
+License, version 3 (see COPYING). The binaries in this archive are statically linked with the libraries
 below. The full text of each license that applies to a library listed here is in the
 licenses/ directory where noted; the corresponding source for the agent and for this
 build is the tamacat/zabbix-7.0-custom repository at the revision named in README.txt.

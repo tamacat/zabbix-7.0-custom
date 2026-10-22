@@ -16,7 +16,7 @@ Contents
   sbin/zabbix_agent2                 the agent
   conf/zabbix_agent2.conf            default configuration
   conf/zabbix_agent2.d/plugins.d/    per-plugin configuration, included by the file above
-  COPYING                            license of the agent (GNU GPL)
+  COPYING                            license of the agent (GNU AGPL v3)
   THIRD-PARTY-NOTICES.txt, licenses/ licenses of the libraries linked into the binary
 
 Quick start

@@ -56,6 +56,10 @@ RUN mkdir -p src/go/bin \
 
 FROM alpine:${ALPINE_VERSION}
 
+LABEL org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.title="Zabbix agent 2" \
+      org.opencontainers.image.source="https://github.com/tamacat/zabbix-7.0-custom"
+
 # ベースイメージ(alpine:${ALPINE_VERSION})は取得した時点のスナップショットで、その後にAlpineが
 # 公開した修正がまだ入っていないことがある(zlib 1.3.2-r0のCVE-2026-85091は、リポジトリに
 # 修正版1.3.2-r1があるのにベースイメージが古く、SCAゲートで落ちた)。ビルドのたびに公開済みの

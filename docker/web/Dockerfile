@@ -82,6 +82,10 @@ RUN ./configure \
 # ---------------------------------------------------------------------------------------
 FROM alpine:${ALPINE_VERSION}
 
+LABEL org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.title="Zabbix web interface (nginx, MySQL)" \
+      org.opencontainers.image.source="https://github.com/tamacat/zabbix-7.0-custom"
+
 ARG ZABBIX_SRC_DIR=sources/zabbix-7.0.32
 ARG PHP_PKG=php85
 
