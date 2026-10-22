@@ -1,0 +1,167 @@
+# Zabbix 7.0 EOL-Free Custom Build — Compose definition [FR4.1][FR4.2].
+#
+# server/web/agent2/proxy reach each other by container name on a bridge network (per the network
+# topology design). Production MySQL is not containerized — the operator's existing MySQL instance is
+# reached via DB_SERVER_HOST (this keeps environment-variable/volume compatibility with the official
+# images).
+#
+# Build context is this directory (zabbix-7.0-custom/) itself; Dockerfiles are docker/<component>/
+# Dockerfile (same build layout as scripts/build-images.sh — amd64 only, per BR5.2).
+#
+# Usage:
+#   cp .env.example .env   # fill in DB_SERVER_HOST / MYSQL_* etc. (or leave DB_SERVER_HOST unset to
+#                           # use the dev-mysql service below instead — see its own comment)
+#   docker compose config --quiet   # config syntax validation only (CompatibilityTestRunner)
+#   docker compose up -d            # server + web + agent2 + proxy (+ dev-mysql, see below)
+
+networks:
+  zbxnet:
+    driver: bridge
+
+volumes:
+  zbx-web-conf:
+  zbx-server-alertscripts:
+  zbx-server-externalscripts:
+  zbx-server-enc:
+  zbx-agent2-enc:
+  zbx-proxy-db-data:
+  zbx-proxy-enc:
+  zbx-proxy-externalscripts:
+  zbx-dev-mysql-data:
+
+services:
+  zabbix-server:
+    build:
+      context: .
+      dockerfile: docker/server/Dockerfile
+      args:
+        ZABBIX_SRC_DIR: ${ZABBIX_SRC_DIR:-sources/zabbix-7.0.32}
+        ALPINE_VERSION: ${ALPINE_VERSION:-3.24}
+    image: tamacat/zabbix-server-mysql:${ZABBIX_IMAGE_TAG:-7.0-custom}
+    container_name: zabbix-server
+    # fping(ICMPチェック)は生ソケットが要る。DockerはNET_RAWを既定で許すがPodmanは許さないため、明示する。
+    cap_add:
+      - NET_RAW
+    networks:
+      - zbxnet
+    environment:
+      DB_SERVER_HOST: ${DB_SERVER_HOST:?set DB_SERVER_HOST to your existing MySQL host in .env}
+      DB_SERVER_PORT: ${DB_SERVER_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER:-zabbix}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-zabbix}
+      ZBX_DBTLSCONNECT: ${ZBX_DBTLSCONNECT:-}
+      ZBX_DBTLSCAFILE: ${ZBX_DBTLSCAFILE:-}
+    volumes:
+      - zbx-server-alertscripts:/var/lib/zabbix/alertscripts
+      - zbx-server-externalscripts:/var/lib/zabbix/externalscripts
+      - zbx-server-enc:/var/lib/zabbix/enc
+    restart: unless-stopped
+
+  zabbix-web:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+      args:
+        ZABBIX_SRC_DIR: ${ZABBIX_SRC_DIR:-sources/zabbix-7.0.32}
+        ALPINE_VERSION: ${ALPINE_VERSION:-3.24}
+    image: tamacat/zabbix-web-nginx-mysql:${ZABBIX_IMAGE_TAG:-7.0-custom}
+    container_name: zabbix-web
+    networks:
+      - zbxnet
+    depends_on:
+      - zabbix-server
+    ports:
+      - "${ZABBIX_WEB_PORT:-8080}:8080"
+    environment:
+      DB_SERVER_HOST: ${DB_SERVER_HOST:?set DB_SERVER_HOST to your existing MySQL host in .env}
+      DB_SERVER_PORT: ${DB_SERVER_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER:-zabbix}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-zabbix}
+      ZBX_SERVER_HOST: zabbix-server
+      ZBX_SERVER_NAME: ${ZBX_SERVER_NAME:-}
+      PHP_TZ: ${PHP_TZ:-UTC}
+    volumes:
+      - zbx-web-conf:/usr/share/zabbix/conf
+    restart: unless-stopped
+
+  zabbix-agent2:
+    build:
+      context: .
+      dockerfile: docker/agent2/Dockerfile
+      args:
+        ZABBIX_SRC_DIR: ${ZABBIX_SRC_DIR:-sources/zabbix-7.0.32}
+        ALPINE_VERSION: ${ALPINE_VERSION:-3.24}
+    image: tamacat/zabbix-agent2:${ZABBIX_IMAGE_TAG:-7.0-custom}
+    container_name: zabbix-agent2
+    networks:
+      - zbxnet
+    depends_on:
+      - zabbix-server
+    environment:
+      ZBX_SERVER_HOST: zabbix-server
+      ZBX_HOSTNAME: ${ZBX_HOSTNAME:-}
+    volumes:
+      - zbx-agent2-enc:/var/lib/zabbix/enc
+    restart: unless-stopped
+
+  # zabbix-proxy (SQLite3) — its local buffer uses SQLite3 only (the BR5.1 exception). It never
+  # connects to the main database (MySQL). Comment out this service and its volumes if not needed.
+  zabbix-proxy:
+    build:
+      context: .
+      dockerfile: docker/proxy/Dockerfile
+      args:
+        ZABBIX_SRC_DIR: ${ZABBIX_SRC_DIR:-sources/zabbix-7.0.32}
+        ALPINE_VERSION: ${ALPINE_VERSION:-3.24}
+    image: tamacat/zabbix-proxy-sqlite3:${ZABBIX_IMAGE_TAG:-7.0-custom}
+    container_name: zabbix-proxy
+    # fping(ICMPチェック)は生ソケットが要る。DockerはNET_RAWを既定で許すがPodmanは許さないため、明示する。
+    cap_add:
+      - NET_RAW
+    networks:
+      - zbxnet
+    depends_on:
+      - zabbix-server
+    ports:
+      - "${ZABBIX_PROXY_PORT:-10051}:10051"
+    environment:
+      ZBX_SERVER_HOST: zabbix-server
+      ZBX_HOSTNAME: ${ZBX_PROXY_HOSTNAME:-zabbix-proxy}
+    volumes:
+      - zbx-proxy-db-data:/var/lib/zabbix/db_data
+      - zbx-proxy-enc:/var/lib/zabbix/enc
+      - zbx-proxy-externalscripts:/var/lib/zabbix/externalscripts
+    restart: unless-stopped
+
+  # Verification/development-only database. Not part of the production deployment — production points
+  # DB_SERVER_HOST at the operator's own existing MySQL instead. This service only runs when the "dev"
+  # profile is active; .env.example sets COMPOSE_PROFILES=dev so a plain `docker compose up -d` starts
+  # it by default (matching the sibling zabbix-5.0-custom project's behavior). Unset COMPOSE_PROFILES
+  # (or set it to something else) in .env to opt out and point DB_SERVER_HOST at a real MySQL instead.
+  dev-mysql:
+    image: docker.io/library/mysql:8.0
+    container_name: zabbix-dev-mysql
+    profiles: ["dev"]
+    # Zabbix requires utf8mb4/utf8mb4_bin specifically (its frontend's own schema health-check refuses
+    # anything else, including MySQL 8's own default utf8mb4_0900_ai_ci collation). schema.sql's
+    # CREATE TABLE statements carry no per-table CHARACTER SET/COLLATE clause, so every table inherits
+    # whatever the database's default was at creation time — these flags make that default correct
+    # (confirmed against a real fresh load: without them, the Zabbix UI refuses to start with
+    # "Unsupported charset or collation").
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_bin
+    networks:
+      - zbxnet
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DEV_MYSQL_ROOT_PASSWORD:-zabbix-dev-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-zabbix}
+      MYSQL_USER: ${MYSQL_USER:-zabbix}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-zabbix}
+    volumes:
+      - zbx-dev-mysql-data:/var/lib/mysql
+      - ./docker/dev-mysql/init:/docker-entrypoint-initdb.d:ro
+      - ./sources/zabbix-7.0.32/database/mysql:/zabbix-schema-src:ro
+    ports:
+      - "${DEV_MYSQL_PORT:-3306}:3306"
+    restart: "no"

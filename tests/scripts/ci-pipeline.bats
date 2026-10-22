@@ -1,0 +1,291 @@
+#!/usr/bin/env bats
+# scripts/ci-pipeline.sh のテスト — ビルド→SCA→SAST→シークレットスキャン→SBOM生成→
+# 互換性テスト→公開前提条件ゲート判定(ステージ3-9)のオーケストレーションを検証する。
+#
+# docker/trivy/semgrep/cppcheck/gitleaksはすべてテスト用スタブへ差し替え、実スキャン・
+# 実イメージ操作・実コンテナ起動は行わない。
+
+setup() {
+	REPO_ROOT="$(cd "$(dirname "${BATS_TEST_FILENAME}")/../.." && pwd)"
+	TEST_TMPDIR="$(mktemp -d)"
+	STUB_BIN="${TEST_TMPDIR}/bin"
+	mkdir -p "${STUB_BIN}"
+	# CI installs trivy/gitleaks to /usr/local/bin (see .github/workflows/ci-release.yml);
+	# without excluding it here, removing a stub to simulate "tool missing" would still find
+	# the real one there, and PATH order alone can't be trusted to keep the stub authoritative
+	# either (confirmed against a real CI run: several tool-stubbing tests passed locally but
+	# failed on GitHub Actions specifically because of this).
+	export PATH="${STUB_BIN}:$(echo "${PATH}" | sed -e 's#:/usr/local/bin:#:#g' -e 's#^/usr/local/bin:##' -e 's#:/usr/local/bin$##')"
+
+	# scan-runner.bats / compat-test.bats と同じ理由: 実運用データ・開発者ローカルの
+	# .envに結果が左右されないよう、隔離する。
+	export REGISTRY_PATH="${TEST_TMPDIR}/vulnerability-registry.yaml"
+	if [ -f "${REPO_ROOT}/.env" ]; then
+		ENV_BACKUP="${TEST_TMPDIR}/env.backup"
+		mv "${REPO_ROOT}/.env" "${ENV_BACKUP}"
+	fi
+
+	# build-images.sh / scan-sast.sh が要求するソースディレクトリ(中身は問わない)。
+	SRC_DIR="${TEST_TMPDIR}/sources/zabbix-7.0.32"
+	mkdir -p "${SRC_DIR}"
+
+	# SAST: ソースがgitリポジトリ外のため全体スキャン+空のbaselineで実行する。
+	BASELINE_DIR="${TEST_TMPDIR}/baselines"
+	mkdir -p "${BASELINE_DIR}"
+	for tool in semgrep cppcheck; do
+		printf '{"version": 1, "tool": "%s", "note": "", "entries": {}}\n' "${tool}" > "${BASELINE_DIR}/${tool}.json"
+	done
+
+	# docker: build / image inspect / save / compose / stats のすべてに成功で応答する
+	# 汎用スタブ(build-images.bats・scan-runner.bats・scan-secrets.bats・
+	# compat-test.batsのスタブを1つに統合)。
+	cat > "${STUB_BIN}/docker" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+	save)
+		out=""
+		prev=""
+		for arg in "$@"; do
+			if [ "${prev}" = "-o" ]; then
+				out="${arg}"
+			fi
+			prev="${arg}"
+		done
+		# scan-secrets.sh はmanifest.jsonのLayersからレイヤーを展開するため、最小限の実物を作る。
+		work="$(mktemp -d)"
+		mkdir -p "${work}/blobs/sha256" "${work}/layer/app" "${work}/layer/usr/sbin"
+		echo hello > "${work}/layer/app/config.txt"
+		echo fake-binary > "${work}/layer/usr/sbin/zabbix_agent2"
+		tar -cf "${work}/blobs/sha256/abc123" -C "${work}/layer" .
+		rm -rf "${work}/layer"
+		echo '[{"Config":"cfg","Layers":["blobs/sha256/abc123"]}]' > "${work}/manifest.json"
+		tar -cf "${out}" -C "${work}" .
+		rm -rf "${work}"
+		exit 0
+		;;
+	*)
+		exit 0
+		;;
+esac
+EOF
+	chmod +x "${STUB_BIN}/docker"
+
+	# trivy: `image --format json --output <f> <img>`(scan-sca.sh)と
+	# `image --format cyclonedx --output <f> <img>`(SBOM生成)の両方に空/最小結果で応答する。
+	cat > "${STUB_BIN}/trivy" <<'EOF'
+#!/usr/bin/env bash
+format=""
+out=""
+prev=""
+for arg in "$@"; do
+	if [ "${prev}" = "--format" ]; then
+		format="${arg}"
+	fi
+	if [ "${prev}" = "--output" ]; then
+		out="${arg}"
+	fi
+	prev="${arg}"
+done
+if [ "${format}" = "cyclonedx" ]; then
+	echo '{"bomFormat": "CycloneDX", "components": []}' > "${out}"
+else
+	echo '{"Results": []}' > "${out}"
+fi
+exit 0
+EOF
+	chmod +x "${STUB_BIN}/trivy"
+
+	cat > "${STUB_BIN}/semgrep" <<'EOF'
+#!/usr/bin/env bash
+out=""
+prev=""
+for arg in "$@"; do
+	if [ "${prev}" = "--output" ]; then
+		out="${arg}"
+	fi
+	prev="${arg}"
+done
+echo '{"results": []}' > "${out}"
+exit 0
+EOF
+	chmod +x "${STUB_BIN}/semgrep"
+
+	cat > "${STUB_BIN}/cppcheck" <<'EOF'
+#!/usr/bin/env bash
+>&2 echo '<results><errors></errors></results>'
+exit 0
+EOF
+	chmod +x "${STUB_BIN}/cppcheck"
+
+	cat > "${STUB_BIN}/govulncheck" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >> "${TEST_TMPDIR}/govulncheck-calls.log"
+if [ -n "\${GOVULN_STUB_JSON:-}" ]; then
+	printf '%s
+' "\${GOVULN_STUB_JSON}"
+else
+	echo '{"config": {"scanner_name": "govulncheck", "scan_mode": "binary"}}'
+fi
+EOF
+	chmod +x "${STUB_BIN}/govulncheck"
+
+	cat > "${STUB_BIN}/gitleaks" <<'EOF'
+#!/usr/bin/env bash
+report_path=""
+prev=""
+for arg in "$@"; do
+	if [ "${prev}" = "--report-path" ]; then
+		report_path="${arg}"
+	fi
+	prev="${arg}"
+done
+[ -n "${report_path}" ] && echo '[]' > "${report_path}"
+exit 0
+EOF
+	chmod +x "${STUB_BIN}/gitleaks"
+}
+
+teardown() {
+	if [ -n "${ENV_BACKUP:-}" ] && [ -f "${ENV_BACKUP}" ]; then
+		mv "${ENV_BACKUP}" "${REPO_ROOT}/.env"
+	fi
+	rm -rf "${TEST_TMPDIR}"
+}
+
+# 「ツールが無い」状況を再現する。PATHからそのツールを提供するディレクトリを外し、同じ
+# ディレクトリにある他の実行ファイルは影の置き場へのsymlinkで残す。開発機にscoop等で
+# 実物のtrivyが/usr/local/bin以外へ入っていることがあり、スタブを置かないだけでは
+# 「不在」にならない(scan-runner.batsのsemgrepのテストと同じ理由)。
+hide_tool() {
+	local tool="$1" shadow="${TEST_TMPDIR}/shadow-bin" dir file base new_path="" IFS=:
+	mkdir -p "${shadow}"
+	for dir in ${PATH}; do
+		if [ -x "${dir}/${tool}" ]; then
+			for file in "${dir}"/*; do
+				[ -e "${file}" ] || continue
+				base="${file##*/}"
+				# Windowsの実行ファイルは拡張子違いの別名(trivy.exe, trivy.shim等)が
+				# 別ファイルの実体として存在する。拡張子を含めた完全一致だけを見ると
+				# それらを見逃して隠しきれないため、拡張子を除いた名前で比較する
+				# (scoopでインストールしたtrivyで実際に再現した不具合)。
+				case "${base}" in
+					"${tool}" | "${tool}".*) continue ;;
+				esac
+				[ -x "${file}" ] && ln -sf "${file}" "${shadow}/${base}"
+			done
+			continue
+		fi
+		new_path="${new_path:+${new_path}:}${dir}"
+	done
+	export PATH="${new_path}:${shadow}"
+	if command -v "${tool}" >/dev/null 2>&1; then
+		echo "hide_tool: ${tool} がまだPATH上にあります" >&2
+		return 1
+	fi
+}
+
+run_pipeline() {
+	env \
+		ZABBIX_VERSION=7.0.32 \
+		ZABBIX_SRC_DIR="${SRC_DIR}" \
+		BUILD_DATE=20260920 \
+		DB_SERVER_HOST=mysql.example.internal \
+		MYSQL_PASSWORD=secret \
+		REGISTRY_PATH="${REGISTRY_PATH}" \
+		SAST_SCOPE=full \
+		SAST_BASELINE_DIR="${BASELINE_DIR}" \
+		bash scripts/ci-pipeline.sh
+}
+
+@test "必須環境変数ZABBIX_VERSION未設定時にエラーで停止する" {
+	cd "${REPO_ROOT}"
+	run env --unset=ZABBIX_VERSION ZABBIX_SRC_DIR="${SRC_DIR}" bash scripts/ci-pipeline.sh
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"ZABBIX_VERSION"* ]]
+	[[ "$output" == *"自動リトライは行いません"* ]]
+}
+
+@test "trivyが見つからない場合エラーで停止する" {
+	cd "${REPO_ROOT}"
+	rm -f "${STUB_BIN}/trivy"
+	hide_tool trivy
+	run run_pipeline
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"trivy"* ]]
+}
+
+@test "正常系ではステージ3-9をすべてPassし、4コンポーネント分のタグとSBOM_DIRを報告する" {
+	cd "${REPO_ROOT}"
+	run run_pipeline
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"tamacat/zabbix-server-mysql:7.0.32-alpine-b20260920"* ]]
+	[[ "$output" == *"tamacat/zabbix-web-nginx-mysql:7.0.32-alpine-b20260920"* ]]
+	[[ "$output" == *"tamacat/zabbix-agent2:7.0.32-alpine-b20260920"* ]]
+	[[ "$output" == *"tamacat/zabbix-proxy-sqlite3:7.0.32-alpine-b20260920"* ]]
+	[[ "$output" == *"SCA verdict: Pass"* ]]
+	[[ "$output" == *"SAST verdict: Pass"* ]]
+	[[ "$output" == *"result: Clean"* ]]
+	[[ "$output" == *"CompatibilityTestRun result: Pass"* ]]
+	[[ "$output" == *"検証ステージ(3-9)がすべてPassしました"* ]]
+	[[ "$output" == *"SBOM_DIR="* ]]
+}
+
+@test "SCAスキャンでCriticalな未棚卸しfindingがあればSCAで停止し、SAST以降は実行しない" {
+	cd "${REPO_ROOT}"
+	cat > "${STUB_BIN}/trivy" <<'EOF'
+#!/usr/bin/env bash
+format=""
+out=""
+prev=""
+for arg in "$@"; do
+	if [ "${prev}" = "--format" ]; then
+		format="${arg}"
+	fi
+	if [ "${prev}" = "--output" ]; then
+		out="${arg}"
+	fi
+	prev="${arg}"
+done
+if [ "${format}" = "cyclonedx" ]; then
+	echo '{"bomFormat": "CycloneDX", "components": []}' > "${out}"
+else
+	cat > "${out}" <<'JSON'
+{"Results": [{"Target": "zabbix-server", "Vulnerabilities": [
+	{"VulnerabilityID": "CVE-2026-00099", "Severity": "CRITICAL"}
+]}]}
+JSON
+fi
+exit 0
+EOF
+	chmod +x "${STUB_BIN}/trivy"
+
+	run run_pipeline
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"SCA verdict: Fail"* ]]
+	[[ "$output" == *"SCAスキャンでFail判定が出ました"* ]]
+	[[ "$output" != *"ScanRunner(SAST)"* ]]
+	[[ "$output" != *"CompatibilityTestRun"* ]]
+}
+
+@test "Go(agent2)のバイナリだけをgovulncheckで解析し、4コンポーネントのうち1回だけ呼ぶ" {
+	cd "${REPO_ROOT}"
+	run run_pipeline
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"Go vulnerability verdict: Pass"* ]]
+	[ "$(wc -l < "${TEST_TMPDIR}/govulncheck-calls.log")" -eq 1 ]
+	grep -q -- "-mode=binary" "${TEST_TMPDIR}/govulncheck-calls.log"
+}
+
+@test "govulncheckがバイナリの呼ぶ脆弱性を見つけたらSCAでFailし、SAST以降は実行しない" {
+	cd "${REPO_ROOT}"
+	local found='{"config": {"scanner_name": "govulncheck"}}
+{"osv": {"id": "GO-2026-6603", "aliases": ["CVE-2026-78659"]}}
+{"finding": {"osv": "GO-2026-6603", "fixed_version": "go1.26.9", "trace": [{"module": "stdlib", "package": "net/http", "function": "Do"}]}}'
+	export GOVULN_STUB_JSON="${found}" # run_pipelineのenvが子プロセスへ引き継ぐ
+	run run_pipeline
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"Go vulnerability verdict: Fail"* ]]
+	[[ "$output" == *"govulncheck|GO-2026-6603"* ]]
+	[[ "$output" == *"SCAスキャンでFail判定が出ました"* ]]
+	[[ "$output" != *"ScanRunner(SAST)"* ]]
+}
