@@ -377,7 +377,7 @@ the image was originally built.
 
 ### PHP in `zabbix-web` is built from source
 
-The `zabbix-web` image does not use Alpine's `php83` packages: PHP is compiled
+The `zabbix-web` image does not use Alpine's `php85` packages: PHP is compiled
 from the official tarball in `docker/web/Dockerfile` (pinned by version and
 SHA-256, which the build verifies), so a PHP security release can be taken the
 day it is published instead of whenever Alpine packages it. The extension set is
@@ -393,7 +393,7 @@ Consequences to know about:
   pinned `PHP_VERSION` with the latest release of the same series on php.net,
   and the weekly CI run (`php-version` job) fails when a newer one exists.
 - **Updating PHP** is a manual step: take the new version and its SHA-256 from
-  `https://www.php.net/releases/index.php?json&version=8.3`, set `PHP_VERSION`
+  `https://www.php.net/releases/index.php?json&version=8.5`, set `PHP_VERSION`
   and `PHP_SHA256` in `docker/web/Dockerfile`, rebuild, and check that the
   Zabbix front end's setup prerequisites page and `scripts/compat-test.sh` pass.
 - The Alpine libraries PHP links against (libxml2, OpenSSL, libpng, …) are still

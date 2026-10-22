@@ -11,9 +11,9 @@
 # ビルド/実行環境のみを新規に定義する(トラックB)。
 #
 # PHPはAlpineのパッケージではなく、公式のソースからビルドする。PHPのセキュリティリリース
-# (2026-10-21の8.3.36: 認証なしのリモートコード実行2件)に対し、Alpineのphp83が追いつくのを
-# 待たずに修正版を取り込むため。有効にする拡張は、これまで使っていたAlpineのphp83パッケージと
-# 同じ集合に揃えている(下のconfigureと、tests/test_web_php.pyの一覧を参照)。
+# (2026-10-21の認証なしのリモートコード実行2件)に対し、Alpineのphpパッケージが追いつくのを
+# 待たずに修正版を取り込むため。PHP 8.5は公式のZabbix 7.0イメージと同じ系列。有効にする拡張は、
+# Alpineのphp85パッケージと同じ集合に揃えている(下のconfigureと、tests/test_web_php.pyの一覧を参照)。
 
 ARG ALPINE_VERSION=3.24
 
@@ -21,8 +21,8 @@ ARG ALPINE_VERSION=3.24
 # (https://www.php.net/releases/index.php?json&version=<X.Y>)で確認した値に更新する。現在の値は
 # 2026-10-22に確認した。PHP本体はTrivyが脆弱性を判定できない(Alpineのパッケージではないため)ので、
 # 新しいリリースが出ていないかは scripts/check-php-version.sh と定期実行のCIが確認する。
-ARG PHP_VERSION=8.3.36
-ARG PHP_SHA256=dd54693aa334c5c4d72e9aee96b082c2473750a18a6c1d105789c93a3b1692fd
+ARG PHP_VERSION=8.5.12
+ARG PHP_SHA256=08bc2eba2a588654ade1357174aa646b761556c862dda0678345ee29ed481209
 
 # ---------------------------------------------------------------------------------------
 # PHP(php-fpm と CLI)のビルド
@@ -46,18 +46,19 @@ RUN curl -fsSL -o php.tar.xz "https://www.php.net/distributions/php-${PHP_VERSIO
 	&& echo "${PHP_SHA256}  php.tar.xz" | sha256sum -c - \
 	&& tar -xJf php.tar.xz --strip-components=1
 
-# --disable-all から、Zabbixが必要とする拡張だけを足す。これまで使っていたAlpineのphp83パッケージと
+# --disable-all から、Zabbixが必要とする拡張だけを足す。Alpineのphp85パッケージと
 # 同じ集合(bcmath ctype dom fileinfo filter gd gettext iconv mbstring mysqli mysqlnd openssl session
-# sockets tokenizer xml xmlreader xmlwriter zlib、加えてphar・opcache)で、curl・ftp・sodium・
+# sockets tokenizer xml xmlreader xmlwriter zlib phar)で、curl・ftp・sodium・
 # sqlite3などZabbixが使わない拡張は含めない。拡張は共有ライブラリではなくPHP本体に組み込む。
-# 配置はAlpineのパッケージに合わせ(/etc/php83、php83・php-fpm83)、entrypoint.shを変えずに済むようにしている。
+# OPcacheはPHP 8.5から常にPHP本体へ組み込まれる(configureのフラグもopcache.soも不要)。
+# 配置はAlpineのパッケージに合わせ(/etc/php85、php85・php-fpm85)、entrypoint.shの変更を最小にしている。
 RUN ./configure \
 		--prefix=/usr \
-		--sysconfdir=/etc/php83 \
+		--sysconfdir=/etc/php85 \
 		--localstatedir=/var \
-		--program-suffix=83 \
-		--with-config-file-path=/etc/php83 \
-		--with-config-file-scan-dir=/etc/php83/conf.d \
+		--program-suffix=85 \
+		--with-config-file-path=/etc/php85 \
+		--with-config-file-scan-dir=/etc/php85/conf.d \
 		--disable-all --disable-cgi --disable-phpdbg --without-pear \
 		--enable-cli --enable-fpm \
 		--enable-bcmath --enable-ctype --enable-dom --enable-fileinfo --enable-filter \
@@ -66,17 +67,15 @@ RUN ./configure \
 		--enable-mysqlnd --with-mysqli=mysqlnd --with-mysql-sock=/run/mysqld/mysqld.sock \
 		--with-openssl --enable-session --enable-sockets --enable-tokenizer \
 		--enable-xml --enable-xmlreader --enable-xmlwriter --with-libxml \
-		--with-zlib --with-external-pcre --enable-phar --enable-opcache \
+		--with-zlib --with-external-pcre --enable-phar \
 	&& make -j"$(nproc)" \
-	&& make install-cli install-fpm install-modules INSTALL_ROOT=/php-root \
-	&& strip /php-root/usr/bin/php83 /php-root/usr/sbin/php-fpm83 \
-	# Alpineのphp83パッケージは本番向けのphp.ini(display_errors=Off、log_errors=On、error_reporting
+	&& make install-cli install-fpm INSTALL_ROOT=/php-root \
+	&& strip /php-root/usr/bin/php85 /php-root/usr/sbin/php-fpm85 \
+	# Alpineのphp85パッケージは本番向けのphp.ini(display_errors=Off、log_errors=On、error_reporting
 	# にE_DEPRECATED・E_STRICTを含めない)を置いていた。ソースビルドは置かないので、PHPが同梱する本番向けの
 	# 雛形をそのまま使う。Zabbixに必要な値は conf.d/99-zabbix.ini が上書きする。
-	&& mkdir -p /php-root/etc/php83/conf.d /php-root/etc/php83/php-fpm.d \
-	&& cp php.ini-production /php-root/etc/php83/php.ini \
-	# OPcacheだけは共有ライブラリ(opcache.so)として作られ、読み込む設定が要る(Alpineは00_opcache.ini)。
-	&& echo "zend_extension=opcache" > /php-root/etc/php83/conf.d/00_opcache.ini
+	&& mkdir -p /php-root/etc/php85/conf.d /php-root/etc/php85/php-fpm.d \
+	&& cp php.ini-production /php-root/etc/php85/php.ini
 
 # ---------------------------------------------------------------------------------------
 # 実行用イメージ
@@ -84,7 +83,7 @@ RUN ./configure \
 FROM alpine:${ALPINE_VERSION}
 
 ARG ZABBIX_SRC_DIR=sources/zabbix-7.0.32
-ARG PHP_PKG=php83
+ARG PHP_PKG=php85
 
 # ベースイメージ(alpine:${ALPINE_VERSION})は取得した時点のスナップショットで、その後にAlpineが
 # 公開した修正がまだ入っていないことがある(zlib 1.3.2-r0のCVE-2026-85091は、リポジトリに
@@ -118,11 +117,11 @@ COPY docker/web/conf/php-fpm.conf /etc/${PHP_PKG}/php-fpm.conf
 COPY docker/web/conf/php-fpm-www.conf /etc/${PHP_PKG}/php-fpm.d/www.conf
 COPY docker/web/conf/zabbix.ini /etc/${PHP_PKG}/conf.d/99-zabbix.ini
 
-# 実行時に必要な共有ライブラリが全部あること(足りなければ、ここでビルドを止める)。OPcacheは
-# phpの外の共有ライブラリ(opcache.so)で、lddの結果に出ないlibgcc_s.so.1も要るため、読み込めること
-# (php -m)まで確認する。
-RUN ! ldd /usr/bin/php83 /usr/sbin/php-fpm83 | grep -i "not found" \
-	&& php83 -m | grep -qx mysqli && php83 -m | grep -qx "Zend OPcache" && php-fpm83 -t
+# 実行時に必要な共有ライブラリが全部あること(足りなければ、ここでビルドを止める。PHP 8.5の本体は
+# lddの結果に出ないlibgcc_s.so.1(スタックトレース用)も使うので、実際に起動するphp -mまで確認する)。あわせて、
+# mysqliとOPcacheが組み込まれていること、php-fpmの設定が読めることを確認する。
+RUN ! ldd /usr/bin/php85 /usr/sbin/php-fpm85 | grep -i "not found" \
+	&& php85 -m | grep -qx mysqli && php85 -m | grep -qx "Zend OPcache" && php-fpm85 -t
 
 # ui/conf/zabbix.conf.php はソースに存在しない(.exampleのみ) — entrypoint.shが
 # 環境変数からコンテナ起動時に生成するため、イメージには焼き込まない。

@@ -54,7 +54,7 @@ function glyph($font, $ch) {
 $font = $argv[1];
 echo glyph($font, "日") !== glyph($font, "語") ? "real-glyphs" : "boxes";
 PHP
-echo "${name} $(php83 /tmp/g.php "/usr/share/zabbix/assets/fonts/${name}.ttf")"
+echo "${name} $(php85 /tmp/g.php "/usr/share/zabbix/assets/fonts/${name}.ttf")"
 EOS
 	[ "${status}" -eq 0 ]
 	[[ "${output}" == *"real-glyphs" ]]

@@ -10,11 +10,11 @@
 set -eu
 
 CONFIG_FILE="/usr/share/zabbix/conf/zabbix.conf.php"
-PHP_INI_FILE="/etc/php83/conf.d/99-zabbix.ini"
-FPM_POOL_FILE="/etc/php83/php-fpm.d/zz-zabbix.conf"
+PHP_INI_FILE="/etc/php85/conf.d/99-zabbix.ini"
+FPM_POOL_FILE="/etc/php85/php-fpm.d/zz-zabbix.conf"
 NGINX_SNIPPET_DIR="/tmp/zabbix-nginx"
 SSL_DIR="/etc/ssl/nginx"
-PHP_FPM_BIN="${PHP_FPM_BIN:-php-fpm83}"
+PHP_FPM_BIN="${PHP_FPM_BIN:-php-fpm85}"
 
 fail() {
 	echo "**** ERROR: $1" >&2

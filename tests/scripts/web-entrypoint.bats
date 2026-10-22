@@ -27,7 +27,7 @@ setup() {
 		grep -qF "${v}" "${SCRIPT}"
 	done
 
-	for b in php-fpm83 nginx; do
+	for b in php-fpm85 nginx; do
 		cat > "${STUB_BIN}/${b}" <<EOF
 #!/bin/sh
 echo "${b} \$*" >> "${TEST_TMPDIR}/started.log"
@@ -71,7 +71,7 @@ srv_has() { grep -qxF -- "$1" "${NGX}/server.conf"; }
 	http_has "access_log /dev/stdout;"
 	srv_has "index index.php;"
 	! grep -q "listen 8443" "${NGX}/server.conf"
-	grep -q "^php-fpm83 --nodaemonize$" "${TEST_TMPDIR}/started.log"
+	grep -q "^php-fpm85 --nodaemonize$" "${TEST_TMPDIR}/started.log"
 	grep -q '^nginx -e /dev/stderr -g daemon off;$' "${TEST_TMPDIR}/started.log"
 }
 
