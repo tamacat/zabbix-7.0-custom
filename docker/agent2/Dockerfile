@@ -45,7 +45,13 @@ RUN sh ./configure --disable-dependency-tracking --enable-agent2 --with-openssl
 # 7.0ではsrc/go/Makefile.amが `go build -o bin ...` を実行し、`src/go/bin/`(ソースに
 # ディレクトリとして存在する)の中に`zabbix_agent2`が生成される(6.0ではbin自体がバイナリ
 # ファイルだった)。
-RUN make -j"$(nproc)" CGO_CFLAGS="-I/build/include -D_LARGEFILE64_SOURCE" \
+#
+# ただし`src/go/bin/`は中身が空のディレクトリで、gitは空のディレクトリを保存しない。展開した
+# ソースがある手元の作業ツリーには残っていても、クリーンなチェックアウト(CI)には無く、その場合
+# `go build -o bin`は`bin`という名前のファイルを作って、下の`cp`が「Not a directory」で失敗する。
+# そのため、ビルドの前に必ず作る。
+RUN mkdir -p src/go/bin \
+	&& make -j"$(nproc)" CGO_CFLAGS="-I/build/include -D_LARGEFILE64_SOURCE" \
 	&& cp src/go/bin/zabbix_agent2 /build/bin/zabbix_agent2
 
 FROM alpine:${ALPINE_VERSION}

@@ -151,8 +151,10 @@ RUN sh ./configure --disable-dependency-tracking --enable-agent2 --with-openssl 
 # CC="gcc -static": agent2のMakefileは go build を CGO_LDFLAGS 付きで呼ぶため、リンクオプションを
 # 後から足せない。goはCGOのコンパイラ(リンカの呼び出しを含む)として CC を使うので、ここで -static を渡す。
 # -D_LARGEFILE64_SOURCE は docker/agent2/Dockerfile と同じ(go-sqlite3がmuslでpread64等を要求する)。
-# 出力は src/go/bin という名前のファイルそのもの(docker/agent2/Dockerfile のコメント参照)。
-RUN make -j"$(nproc)" CC="gcc -static" CGO_CFLAGS="-I/build/include -D_LARGEFILE64_SOURCE" \
+# 出力は src/go/bin/ の中の zabbix_agent2。このディレクトリは空でgitに保存されず、クリーンな
+# チェックアウトには無いので、ビルドの前に作る(docker/agent2/Dockerfile のコメント参照)。
+RUN mkdir -p src/go/bin \
+	&& make -j"$(nproc)" CC="gcc -static" CGO_CFLAGS="-I/build/include -D_LARGEFILE64_SOURCE" \
 	&& mkdir -p /out \
 	&& cp src/go/bin/zabbix_agent2 /out/zabbix_agent2 \
 	&& apk list --installed openssl-libs-static pcre2-static zlib-static | cut -d' ' -f1 > /out/linked-libraries.txt
