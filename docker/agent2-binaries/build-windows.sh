@@ -41,7 +41,7 @@ ln -sf /usr/x86_64-w64-mingw32/lib/libwevtapi.a "${SHIM_LIB}/libWevtapi.a"
 # GCC 10以降の既定(-fno-common)では、それをincludeした複数のオブジェクトで多重定義になる。
 # アップストリームが想定している従来の挙動(-fcommon)に戻す。
 CFLAGS="-O2 -g -fcommon -DHAVE_STDINT_H=1 -DZBX_BUILD_AGENT2=1 -DHAVE_THREAD_LOCAL=1"
-CFLAGS="${CFLAGS} -I${SRC}/build/win32/include -I${SRC}/build/mingw -I${SRC}/include -I${SHIM_INC}"
+CFLAGS="${CFLAGS} -I${SRC}/build/win32/include/common -I${SRC}/build/mingw -I${SRC}/include -I${SRC}/include/common -I${SHIM_INC}"
 # TLS(PSK・証明書)とPCRE2。アップストリームのMakefileの OPENSSL= / PCRE2= の分岐に相当する。
 CFLAGS="${CFLAGS} -DHAVE_OPENSSL=1 -DHAVE_OPENSSL_WITH_PSK=1 -DPCRE2_STATIC -DHAVE_PCRE2_H=1 -I${DEPS}/include"
 
@@ -54,35 +54,55 @@ compile() { # compile <出力名> <ソース(src/からの相対)> [追加フラ
 	${CC} ${CFLAGS} -DUNICODE "$@" -c "${SRC}/src/${source}" -o "${OBJ_DIR}/${name}.o"
 }
 
+compile bincommon libs/zbxbincommon/bincommon.c
+compile threads libs/zbxthreads/threads.c
+compile interval libs/zbxexpr/interval.c
+compile num libs/zbxnum/num.c
+compile str libs/zbxstr/str.c
+compile common_str libs/zbxcommon/common_str.c
+compile common_log libs/zbxcommon/common_log.c
+compile components_strings_representations libs/zbxcommon/components_strings_representations.c
+compile libc_wrappers libs/zbxcommon/libc_wrappers.c
+compile param libs/zbxparam/param.c
 compile misc libs/zbxcommon/misc.c
-compile iprange libs/zbxcommon/iprange.c
-compile str libs/zbxcommon/str.c
-compile file libs/zbxcommon/file.c
-compile alias libs/zbxcommon/alias.c
-compile time libs/zbxcommon/time.c
-compile tls_version libs/zbxcrypto/tls_version.c
+compile time libs/zbxtime/time.c
+compile expr libs/zbxexpr/expr.c
+compile host libs/zbxexpr/host.c
+compile macro libs/zbxexpr/macro.c
+compile function libs/zbxexpr/function.c
+compile token libs/zbxexpr/token.c
 compile fatal libs/zbxwin32/fatal.c
 compile disk libs/zbxwin32/disk.c
-compile threads libs/zbxsys/threads.c
-compile md5 libs/zbxcrypto/md5.c
-compile json_parser libs/zbxjson/json_parser.c -DWITH_COMMON_METRICS
-compile jsonpath libs/zbxjson/jsonpath.c -DWITH_COMMON_METRICS
-compile jsonobj libs/zbxjson/jsonobj.c -DWITH_COMMON_METRICS
-compile sha256crypt libs/zbxcrypto/sha256crypt.c -DWITH_COMMON_METRICS
-compile variant libs/zbxcommon/variant.c -DWITH_COMMON_METRICS
-compile json libs/zbxjson/json.c -DWITH_COMMON_METRICS
+compile ip libs/zbxip/ip.c
+compile iprange libs/zbxip/iprange.c
+compile zbxhash libs/zbxhash/zbxhash.c
+compile md5 libs/zbxhash/md5.c
 compile sysinfo libs/zbxsysinfo/sysinfo.c -DWITH_COMMON_METRICS
-compile sysinfo_system libs/zbxsysinfo/common/system.c
-compile sysinfo_dns libs/zbxsysinfo/common/dns.c
-compile sysinfo_file libs/zbxsysinfo/common/file.c
-compile sysinfo_dir libs/zbxsysinfo/common/dir.c
 compile vector libs/zbxalgo/vector.c
 compile hashset libs/zbxalgo/hashset.c
-compile algodefs libs/zbxalgo/algodefs.c
 compile zbxregexp libs/zbxregexp/zbxregexp.c
 compile persistent_state zabbix_agent/logfiles/persistent_state.c
 compile logfiles zabbix_agent/logfiles/logfiles.c
-compile eventlog zabbix_agent/eventlog.c
+compile file libs/zbxfile/file.c
+compile algodefs libs/zbxalgo/algodefs.c
+compile json libs/zbxjson/json.c -DWITH_COMMON_METRICS
+compile json_parser libs/zbxjson/json_parser.c -DWITH_COMMON_METRICS
+compile jsonpath libs/zbxjson/jsonpath.c -DWITH_COMMON_METRICS
+compile jsonobj libs/zbxjson/jsonobj.c -DWITH_COMMON_METRICS
+compile sha256crypt libs/zbxhash/sha256crypt.c -DWITH_COMMON_METRICS
+compile variant libs/zbxvariant/variant.c -DWITH_COMMON_METRICS
+compile sysinfo_system libs/zbxsysinfo/common/system.c
+compile sysinfo_dns libs/zbxsysinfo/common/dns.c
+compile sysinfo_ip_reverse libs/zbxsysinfo/common/ip_reverse.c
+compile sysinfo_vfs_file libs/zbxsysinfo/common/vfs_file.c
+compile sysinfo_dir libs/zbxsysinfo/common/dir.c
+compile sysinfo_alias libs/zbxsysinfo/alias/alias.c
+compile eventlog zabbix_agent/active_checks/eventlog_win32/eventlog.c
+compile process_eventslog zabbix_agent/active_checks/eventlog_win32/process_eventslog.c
+compile process_eventslog6 zabbix_agent/active_checks/eventlog_win32/process_eventslog6.c
+compile symbols libs/zbxwin32/symbols.c
+compile win32_file libs/zbxfile/win32/win32_file.c
+compile tls_version libs/zbxcomms/tls_version.c
 
 # バージョン情報・アイコン等のWindowsリソース。resource.rc とそこからincludeされるファイルは
 # Windowsのパス区切り(\)でincludeを書いているので、Linuxで読めるよう / に直してから使う。

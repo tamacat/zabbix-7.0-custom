@@ -137,7 +137,7 @@ RUN apk upgrade --no-cache
 
 # *-static: 共有ライブラリの代わりに取り込む静的ライブラリ(libssl.a等)。PCRE2はdocker/agent2/Dockerfile
 # が使う旧PCRE(8.x、上流で保守終了)ではなくPCRE2を使う。
-RUN apk add --no-cache go build-base git autoconf automake libtool \
+RUN apk add --no-cache go build-base linux-headers git autoconf automake libtool \
 		pcre2-dev pcre2-static openssl-dev openssl-libs-static zlib-dev zlib-static
 
 WORKDIR /build
