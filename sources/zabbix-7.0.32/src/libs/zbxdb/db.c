@@ -552,6 +552,31 @@ int	zbx_db_connect_basic(const zbx_config_dbhigh_t *cfg)
 			}
 		}
 	}
+	else if (ZBX_DB_OK == ret)
+	{
+		/* No DBTLSConnect configured: explicitly tell the connector not to enforce or verify TLS,
+		 * instead of leaving it at its own built-in default. This build's MariaDB Connector/C (3.4.x)
+		 * requires a verified encrypted connection by default when no SSL option is set at all, so left
+		 * unconfigured it fails ("SSL is required, but the server does not support it") against a server
+		 * offering no TLS, and fails certificate validation ("self-signed certificate in certificate
+		 * chain") against one that does. MYSQL_OPT_SSL_VERIFY_SERVER_CERT=0 is what actually stops the
+		 * connector from requiring TLS; MYSQL_OPT_SSL_ENFORCE=0 alone does not. Restores the
+		 * "plaintext unless TLS is asked for" behaviour of earlier connectors (same patch as 6.0). */
+		my_bool	enforce_tls = 0;
+		my_bool	verify = 0;
+
+		if (0 != mysql_optionsv(conn, MYSQL_OPT_SSL_ENFORCE, (void *)&enforce_tls))
+		{
+			zabbix_log(LOG_LEVEL_ERR, "Cannot set MYSQL_OPT_SSL_ENFORCE option.");
+			ret = ZBX_DB_FAIL;
+		}
+
+		if (ZBX_DB_OK == ret && 0 != mysql_optionsv(conn, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, (void *)&verify))
+		{
+			zabbix_log(LOG_LEVEL_ERR, "Cannot set MYSQL_OPT_SSL_VERIFY_SERVER_CERT option.");
+			ret = ZBX_DB_FAIL;
+		}
+	}
 
 	if (ZBX_DB_OK == ret && NULL != cfg->config_db_tls_ca_file && 0 != mysql_optionsv(conn, MYSQL_OPT_SSL_CA,
 			cfg->config_db_tls_ca_file))

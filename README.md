@@ -369,8 +369,8 @@ GPL-2.0, matching upstream Zabbix's own license — see [LICENSE](LICENSE).
 
 - Builder stages need `linux-headers` (`linux/version.h`, used by `proc.c`); added to server/proxy/agent2.
 - agent2: 7.0 writes the binary to `src/go/bin/zabbix_agent2` (6.0: `src/go/bin` was the file itself).
-- Database TLS: with `ZBX_DBTLSCONNECT` unset, the Alpine mariadb-connector-c refuses a MySQL server without
-  TLS, and verifies the certificate when it has one (self-signed dev cert fails with "self-signed certificate
-  in certificate chain"). Set `ZBX_DBTLSCONNECT=verify_full` + `ZBX_DBTLSCAFILE`, with a server certificate whose
-  SAN matches `DB_SERVER_HOST`. (MariaDB's connector only supports `required` / `verify_full`, not `verify_ca`.)
-  The `dev-mysql` service in `compose.yml` has not been adapted to this yet.
+- Database TLS: the Alpine mariadb-connector-c (3.4) requires a verified TLS connection when no SSL option is set,
+  which breaks plain or self-signed-cert MySQL. `src/libs/zbxdb/db.c` carries a patch (same as 6.0) that, when
+  `DBTLSConnect` is unset, sets `MYSQL_OPT_SSL_ENFORCE=0` and `MYSQL_OPT_SSL_VERIFY_SERVER_CERT=0`. Verified against
+  MySQL 8.0 with and without TLS. For real TLS set `ZBX_DBTLSCONNECT=verify_full` + `ZBX_DBTLSCAFILE`
+  (MariaDB's connector supports only `required` / `verify_full`).
