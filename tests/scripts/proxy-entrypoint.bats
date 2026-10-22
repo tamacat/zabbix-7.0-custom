@@ -172,11 +172,18 @@ conf_lacks() { ! grep -qE -- "$1" "${CONF}"; }
 	conf_has "CacheSize=16M"
 }
 
-@test "6.0で追加された公式の変数(ZBX_HEARTBEATFREQUENCY、ZBX_STARTHISTORYPOLLERS)に対応する" {
-	run_entrypoint ZBX_HEARTBEATFREQUENCY=30 ZBX_STARTHISTORYPOLLERS=2
+@test "公式の変数 ZBX_HEARTBEATFREQUENCY に対応する" {
+	run_entrypoint ZBX_HEARTBEATFREQUENCY=30
 	[ "$status" -eq 0 ]
 	conf_has "HeartbeatFrequency=30"
-	conf_has "StartHistoryPollers=2"
+}
+
+@test "7.0のzabbix_proxyが受け付けないStartHistoryPollersは、設定ファイルに出さず、無視する警告を出す" {
+	# 6.0のプロキシにはあったが、7.0.32のproxy.cには無い。出すとzabbix_proxyが不明なパラメータで起動に失敗する。
+	run_entrypoint ZBX_STARTHISTORYPOLLERS=2
+	[ "$status" -eq 0 ]
+	! conf_has "StartHistoryPollers=2"
+	[[ "$output" == *"ZBX_STARTHISTORYPOLLERS is set but is not supported by this image"* ]]
 }
 
 @test "5.0側の ZBX_PROXYHEARTBEATFREQUENCY も別名として使え、両方あれば公式の名前を優先する(重複して出さない)" {

@@ -200,7 +200,9 @@ AllowRoot=1"
 	local server_c="${REPO_ROOT}/sources/zabbix-7.0.32/src/zabbix_server/server.c"
 	[ -f "${server_c}" ]
 	local accepted emitted unknown
-	accepted="$(grep -oE '^\s*\{"[A-Za-z0-9]+",\s*&' "${server_c}" | grep -oE '"[A-Za-z0-9]+"' | tr -d '"' | sort -u)"
+	# server.c writes an entry as `{"Name", &variable, ...}`, but a long entry breaks the line after the name
+	# (ProblemHousekeepingFrequency in 7.0.32), so join the lines before matching.
+	accepted="$(tr '\n' ' ' < "${server_c}" | grep -oE '\{"[A-Za-z0-9]+",[[:space:]]*&' | grep -oE '"[A-Za-z0-9]+"' | tr -d '"' | sort -u)"
 	[ -n "${accepted}" ]
 	emitted="$( { sed -n '/^SCALARS="/,/^"$/p' "${REPO_ROOT}/docker/server/entrypoint.sh" | grep -oE ':[A-Za-z0-9]+$' | tr -d ':'; \
 	              sed -n '/^DB_TLS_SCALARS="/,/^"$/p' "${REPO_ROOT}/docker/server/entrypoint.sh" | grep -oE ':[A-Za-z0-9]+$' | tr -d ':'; \
