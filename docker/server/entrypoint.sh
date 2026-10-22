@@ -7,7 +7,8 @@
 # 対応するもの: DB接続(DB_SERVER_HOST/DB_SERVER_PORT/MYSQL_USER/MYSQL_PASSWORD/MYSQL_DATABASE と、
 # Docker secrets用の MYSQL_USER_FILE/MYSQL_PASSWORD_FILE)、DBのTLS、下のSCALARSの表にあるスカラー値の
 # パラメータ、サーバー自身のTLS(値そのものでの指定を含む)、ZBX_LOADMODULE、HAのノード名・
-# ノードアドレス(自動設定を含む)。VAULT_TOKEN は公式と同じくzabbix_serverが環境変数から直接読む。
+# ノードアドレス(自動設定を含む)、Vault(ZBX_VAULT*。DBの認証情報をVaultから取る場合は MYSQL_PASSWORD
+# 不要)。VAULT_TOKEN は公式と同じくzabbix_serverが環境変数から直接読む。
 # 対応しないもの(このイメージがその機能なしでビルドされている、または用のボリュームが無い):
 # Javaゲートウェイ、IPMI、ODBC、SNMPトラップ、SMS。それ以外でも、設定されたZBX_*のうち対応して
 # いないものは、起動時に警告を出して無視したことを必ず知らせる。
@@ -27,10 +28,11 @@ NL='
 # <公式の環境変数>:<zabbix_server.conf のパラメータ>(いずれも 7.0.32 の zabbix_server が受け付ける)
 SCALARS="
 ZBX_ALLOWUNSUPPORTEDDBVERSIONS:AllowUnsupportedDBVersions
+ZBX_ALLOWSOFTWAREUPDATECHECK:AllowSoftwareUpdateCheck
+ZBX_ENABLEGLOBALSCRIPTS:EnableGlobalScripts
+ZBX_MAXCONCURRENTCHECKSPERPOLLER:MaxConcurrentChecksPerPoller
 ZBX_DBTLSCIPHER:DBTLSCipher
 ZBX_DBTLSCIPHER13:DBTLSCipher13
-ZBX_VAULTDBPATH:VaultDBPath
-ZBX_VAULTURL:VaultURL
 ZBX_LISTENIP:ListenIP
 ZBX_LISTENPORT:ListenPort
 ZBX_LISTENBACKLOG:ListenBacklog
@@ -47,6 +49,12 @@ ZBX_STARTPINGERS:StartPingers
 ZBX_STARTDISCOVERERS:StartDiscoverers
 ZBX_STARTHISTORYPOLLERS:StartHistoryPollers
 ZBX_STARTHTTPPOLLERS:StartHTTPPollers
+ZBX_STARTAGENTPOLLERS:StartAgentPollers
+ZBX_STARTHTTPAGENTPOLLERS:StartHTTPAgentPollers
+ZBX_STARTSNMPPOLLERS:StartSNMPPollers
+ZBX_STARTCONNECTORS:StartConnectors
+ZBX_STARTBROWSERPOLLERS:StartBrowserPollers
+ZBX_WEBDRIVERURL:WebDriverURL
 ZBX_STARTTIMERS:StartTimers
 ZBX_STARTESCALATORS:StartEscalators
 ZBX_STARTALERTERS:StartAlerters
@@ -98,6 +106,17 @@ TLSCAFile:ZBX_TLSCAFILE:ZBX_TLSCA
 TLSCRLFile:ZBX_TLSCRLFILE:ZBX_TLSCRL
 TLSCertFile:ZBX_TLSCERTFILE:ZBX_TLSCERT
 TLSKeyFile:ZBX_TLSKEYFILE:ZBX_TLSKEY
+"
+
+# Vault(公式と同じく、ZBX_VAULT と ZBX_VAULTURL が両方あるときだけ設定へ書く)。TLSの証明書・鍵のパスは
+# そのまま渡す。ZBX_VAULTDBPATH もあれば、DBのユーザー名・パスワードはVaultから取るので、書かない。
+VAULT_SCALARS="
+ZBX_VAULT:Vault
+ZBX_VAULTURL:VaultURL
+ZBX_VAULTDBPATH:VaultDBPath
+ZBX_VAULTPREFIX:VaultPrefix
+ZBX_VAULTTLSCERTFILE:VaultTLSCertFile
+ZBX_VAULTTLSKEYFILE:VaultTLSKeyFile
 "
 
 # DBのTLS(パスはそのまま渡す。公式と同じ)
@@ -192,7 +211,25 @@ secret_value MYSQL_PASSWORD
 db_password="${secret_result}"
 : "${db_user:=zabbix}"
 
-if [ -z "${db_password}" ]; then
+# Vaultを使い、DBの認証情報の場所(ZBX_VAULTDBPATH)も指定されているときは、zabbix_server自身がVaultから
+# ユーザー名とパスワードを取るので、MYSQL_PASSWORDは要らない(公式と同じ)。
+use_vault=false
+if [ -n "$(env_value ZBX_VAULT)" ] && [ -n "$(env_value ZBX_VAULTURL)" ]; then
+	use_vault=true
+fi
+vault_db=false
+if [ "${use_vault}" = true ] && [ -n "$(env_value ZBX_VAULTDBPATH)" ]; then
+	vault_db=true
+fi
+if [ "${use_vault}" = false ]; then
+	for name in ZBX_VAULTURL ZBX_VAULTDBPATH ZBX_VAULTPREFIX ZBX_VAULTTLSCERTFILE ZBX_VAULTTLSKEYFILE; do
+		if [ -n "$(env_value "${name}")" ]; then
+			echo "**** WARNING: ${name} is set but ZBX_VAULT and ZBX_VAULTURL are not both set; the Vault settings are ignored." >&2
+		fi
+	done
+fi
+
+if [ -z "${db_password}" ] && [ "${vault_db}" = false ]; then
 	fail "MYSQL_PASSWORD (or MYSQL_PASSWORD_FILE) is not set. This variable is mandatory for Zabbix server to connect to the database."
 fi
 
@@ -216,8 +253,16 @@ CONF
 conf_set DBHost "${DB_SERVER_HOST}"
 conf_set DBPort "${DB_SERVER_PORT}"
 conf_set DBName "${MYSQL_DATABASE}"
-conf_set DBUser "${db_user}"
-conf_set DBPassword "${db_password}"
+if [ "${vault_db}" = false ]; then
+	conf_set DBUser "${db_user}"
+	conf_set DBPassword "${db_password}"
+fi
+
+if [ "${use_vault}" = true ]; then
+	for pair in ${VAULT_SCALARS}; do
+		conf_set "${pair#*:}" "$(env_value "${pair%%:*}")"
+	done
+fi
 
 # 未設定(既定)の場合はDBTLSConnect行を生成しない — TLSなしで接続する(公式と同じ変数名)。
 for pair in ${DB_TLS_SCALARS}; do
@@ -267,7 +312,7 @@ fi
 
 # 設定されているのにこのイメージが扱わない変数を、運用者へ知らせる。
 known=" ZBX_LOADMODULE ZBX_HANODENAME ZBX_AUTOHANODENAME ZBX_NODEADDRESS ZBX_AUTONODEADDRESS ZBX_NODEADDRESSPORT ZBX_CLEAR_ENV"
-for pair in ${SCALARS} ${DB_TLS_SCALARS}; do
+for pair in ${SCALARS} ${DB_TLS_SCALARS} ${VAULT_SCALARS}; do
 	known="${known} ${pair%%:*}"
 done
 for entry in ${TLS_FILES}; do

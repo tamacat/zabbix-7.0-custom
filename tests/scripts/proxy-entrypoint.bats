@@ -163,13 +163,48 @@ conf_lacks() { ! grep -qE -- "$1" "${CONF}"; }
 # --- スカラー値のパラメータ -------------------------------------------------------------
 
 @test "ZBX_PROXYMODE=1(passive)など、公式の変数が対応するパラメータへ反映される" {
-	run_entrypoint ZBX_PROXYMODE=1 ZBX_CONFIGFREQUENCY=600 ZBX_STARTPOLLERS=7 ZBX_DEBUGLEVEL=4 ZBX_CACHESIZE=16M
+	run_entrypoint ZBX_PROXYMODE=1 ZBX_PROXYCONFIGFREQUENCY=600 ZBX_STARTPOLLERS=7 ZBX_DEBUGLEVEL=4 ZBX_CACHESIZE=16M
 	[ "$status" -eq 0 ]
 	conf_has "ProxyMode=1"
-	conf_has "ConfigFrequency=600"
+	conf_has "ProxyConfigFrequency=600"
 	conf_has "StartPollers=7"
 	conf_has "DebugLevel=4"
 	conf_has "CacheSize=16M"
+}
+
+@test "6.0までの ZBX_CONFIGFREQUENCY は、7.0で非推奨のConfigFrequencyではなく ProxyConfigFrequency に読み替え、公式の名前があればそちらを優先する" {
+	run_entrypoint ZBX_CONFIGFREQUENCY=600
+	[ "$status" -eq 0 ]
+	conf_has "ProxyConfigFrequency=600"
+	conf_lacks '^ConfigFrequency='
+
+	run_entrypoint ZBX_CONFIGFREQUENCY=600 ZBX_PROXYCONFIGFREQUENCY=300
+	[ "$status" -eq 0 ]
+	conf_has "ProxyConfigFrequency=300"
+	[ "$(grep -c '^ProxyConfigFrequency=' "${CONF}")" -eq 1 ]
+}
+
+@test "7.0で増えた公式の変数(ポーラー・ブラウザ・WebDriver・プロキシのバッファなど)が設定へ書かれる" {
+	run_entrypoint ZBX_STARTAGENTPOLLERS=3 ZBX_STARTHTTPAGENTPOLLERS=4 ZBX_STARTSNMPPOLLERS=5 \
+		ZBX_STARTBROWSERPOLLERS=2 ZBX_WEBDRIVERURL=http://chrome:4444 ZBX_MAXCONCURRENTCHECKSPERPOLLER=77 \
+		ZBX_PROXYBUFFERMODE=hybrid ZBX_PROXYMEMORYBUFFERSIZE=16M ZBX_PROXYMEMORYBUFFERAGE=600
+	[ "$status" -eq 0 ]
+	conf_has "StartAgentPollers=3"
+	conf_has "StartHTTPAgentPollers=4"
+	conf_has "StartSNMPPollers=5"
+	conf_has "StartBrowserPollers=2"
+	conf_has "WebDriverURL=http://chrome:4444"
+	conf_has "MaxConcurrentChecksPerPoller=77"
+	conf_has "ProxyBufferMode=hybrid"
+	conf_has "ProxyMemoryBufferSize=16M"
+	conf_has "ProxyMemoryBufferAge=600"
+	[[ "$output" != *"not supported"* ]]
+}
+
+@test "7.0で増えた変数は、指定しなければ設定に出ない(Zabbixの既定のまま)" {
+	run_entrypoint
+	[ "$status" -eq 0 ]
+	conf_lacks '^(StartAgentPollers|StartHTTPAgentPollers|StartSNMPPollers|StartBrowserPollers|WebDriverURL|MaxConcurrentChecksPerPoller|ProxyBufferMode|ProxyMemoryBuffer|ProxyConfigFrequency|ConfigFrequency)'
 }
 
 @test "公式の変数 ZBX_HEARTBEATFREQUENCY に対応する" {
@@ -218,7 +253,9 @@ EnableRemoteCommands=1"
 	local proxy_c="${REPO_ROOT}/sources/zabbix-7.0.32/src/zabbix_proxy/proxy.c"
 	[ -f "${proxy_c}" ]
 	local accepted emitted
-	accepted="$(grep -oE '^\s*\{"[A-Za-z0-9]+",\s*&' "${proxy_c}" | grep -oE '"[A-Za-z0-9]+"' | tr -d '"' | sort -u)"
+	# proxy.c writes an entry as `{"Name", &variable, ...}`, but a long entry breaks the line after the name
+	# (MaxConcurrentChecksPerPoller in 7.0.32), so join the lines before matching.
+	accepted="$(tr '\n' ' ' < "${proxy_c}" | grep -oE '\{"[A-Za-z0-9]+",[[:space:]]*&' | grep -oE '"[A-Za-z0-9]+"' | tr -d '"' | sort -u)"
 	[ -n "${accepted}" ]
 	# SCALARSの<変数>:<パラメータ>の右側と、TLS_FILESの左端
 	emitted="$( { sed -n '/^SCALARS="/,/^"$/p' "${REPO_ROOT}/docker/proxy/entrypoint.sh" | grep -oE ':[A-Za-z0-9]+$' | tr -d ':'; \

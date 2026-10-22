@@ -97,6 +97,35 @@ conf_lacks() { ! grep -qE -- "$1" "${CONF}"; }
 	conf_has "PluginTimeout=5"
 }
 
+@test "公式の変数 ZBX_HEARTBEAT_FREQUENCY(アンダースコア付き)が HeartbeatFrequency になる" {
+	run_entrypoint ZBX_HEARTBEAT_FREQUENCY=30
+	[ "$status" -eq 0 ]
+	conf_has "HeartbeatFrequency=30"
+	[[ "$output" != *"not supported"* ]]
+}
+
+@test "TLSの暗号スイート(ZBX_TLSCIPHER* の6種)が設定へ書かれる" {
+	run_entrypoint ZBX_TLSCIPHERALL=A ZBX_TLSCIPHERALL13=B ZBX_TLSCIPHERCERT=C ZBX_TLSCIPHERCERT13=D \
+		ZBX_TLSCIPHERPSK=E ZBX_TLSCIPHERPSK13=F
+	[ "$status" -eq 0 ]
+	conf_has "TLSCipherAll=A"
+	conf_has "TLSCipherAll13=B"
+	conf_has "TLSCipherCert=C"
+	conf_has "TLSCipherCert13=D"
+	conf_has "TLSCipherPSK=E"
+	conf_has "TLSCipherPSK13=F"
+	[[ "$output" != *"not supported"* ]]
+}
+
+@test "公式が「指定できない」または非推奨/Windows専用とする変数(ZBX_ALIAS・ZBX_ENABLEREMOTECOMMANDS・ZBX_EVENTLOGMAXLINESPERSECOND)は設定へ書かず、無視した旨を警告する" {
+	run_entrypoint ZBX_ALIAS=a:b ZBX_ENABLEREMOTECOMMANDS=1 ZBX_EVENTLOGMAXLINESPERSECOND=5
+	[ "$status" -eq 0 ]
+	conf_lacks '^(Alias|EnableRemoteCommands|EventLogMaxLinesPerSecond)='
+	[[ "$output" == *"ZBX_ALIAS is set but is not supported by this image"* ]]
+	[[ "$output" == *"ZBX_ENABLEREMOTECOMMANDS is set but is not supported by this image"* ]]
+	[[ "$output" == *"ZBX_EVENTLOGMAXLINESPERSECOND is set but is not supported by this image"* ]]
+}
+
 @test "ZBX_ALLOWKEY / ZBX_DENYKEY は、キーにカンマを含んでもそのまま1行で渡る" {
 	run_entrypoint 'ZBX_DENYKEY=system.run[*]' 'ZBX_ALLOWKEY=vfs.file.contents[/etc/hosts,utf8]'
 	[ "$status" -eq 0 ]

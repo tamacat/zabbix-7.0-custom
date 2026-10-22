@@ -220,7 +220,8 @@ leaves the parameter at Zabbix's default.
 | `ZBX_HOSTNAME` | `Hostname`, **must match the proxy name registered on the server**; default `zabbix-proxy-sqlite3`. It also names the SQLite buffer, `db_data/<name>.sqlite` |
 | `ZBX_PROXYMODE` | `0` active (default), `1` passive |
 | `ZBX_TLSCONNECT`, `ZBX_TLSACCEPT`, `ZBX_TLSPSKIDENTITY`, `ZBX_TLS*FILE`, `ZBX_TLSPSK`, `ZBX_TLSCERT`, ... | TLS to the server. Give files by path (relative paths are looked up in the `enc` volume) or give the content itself |
-| `ZBX_CONFIGFREQUENCY`, `ZBX_HEARTBEATFREQUENCY`, `ZBX_DATASENDERFREQUENCY`, `ZBX_START*`, `ZBX_*CACHESIZE`, `ZBX_TIMEOUT`, `ZBX_DEBUGLEVEL`, ... | the matching `zabbix_proxy.conf` parameters |
+| `ZBX_PROXYCONFIGFREQUENCY`, `ZBX_HEARTBEATFREQUENCY`, `ZBX_DATASENDERFREQUENCY`, `ZBX_START*`, `ZBX_*CACHESIZE`, `ZBX_TIMEOUT`, `ZBX_DEBUGLEVEL`, ... | the matching `zabbix_proxy.conf` parameters, including the 7.0 additions (`ZBX_STARTAGENTPOLLERS`, `ZBX_STARTHTTPAGENTPOLLERS`, `ZBX_STARTSNMPPOLLERS`, `ZBX_STARTBROWSERPOLLERS`, `ZBX_WEBDRIVERURL`, `ZBX_MAXCONCURRENTCHECKSPERPOLLER`, `ZBX_PROXYBUFFERMODE`, `ZBX_PROXYMEMORYBUFFERSIZE`, `ZBX_PROXYMEMORYBUFFERAGE`) |
+| `ZBX_CONFIGFREQUENCY` (the 6.0 name) | read as `ZBX_PROXYCONFIGFREQUENCY`, because 7.0 deprecates `ConfigFrequency`. `ZBX_STARTHISTORYPOLLERS` is gone in 7.0 and is reported and ignored |
 | `ZBX_LOADMODULE` | comma-separated modules from the `modules` directory |
 
 The legacy name `ZBX_PROXY_HOSTNAME` (what this project's `compose.yml` and
@@ -239,20 +240,33 @@ at start instead of being ignored silently.
 
 - **zabbix-server**: `DB_SERVER_HOST/PORT`, `MYSQL_USER/PASSWORD/DATABASE` (and `*_FILE`
   for the secrets), DB TLS (`ZBX_DBTLSCONNECT`, `ZBX_DBTLS*FILE`), server TLS, every
-  `ZBX_<Parameter>` of `zabbix_server.conf` that is built in, `ZBX_LOADMODULE`, and HA
+  `ZBX_<Parameter>` of `zabbix_server.conf` that is built in (including the 7.0 additions:
+  `ZBX_STARTAGENTPOLLERS`, `ZBX_STARTHTTPAGENTPOLLERS`, `ZBX_STARTSNMPPOLLERS`,
+  `ZBX_STARTCONNECTORS`, `ZBX_STARTBROWSERPOLLERS`, `ZBX_WEBDRIVERURL`,
+  `ZBX_MAXCONCURRENTCHECKSPERPOLLER`, `ZBX_ENABLEGLOBALSCRIPTS`, `ZBX_ALLOWSOFTWAREUPDATECHECK`),
+  `ZBX_LOADMODULE`, Vault (`ZBX_VAULT`, `ZBX_VAULTURL`, `ZBX_VAULTDBPATH`, `ZBX_VAULTPREFIX`,
+  `ZBX_VAULTTLSCERTFILE`, `ZBX_VAULTTLSKEYFILE`, `VAULT_TOKEN`; as in the official image the
+  Vault settings are used only when `ZBX_VAULT` and `ZBX_VAULTURL` are both set, and with
+  `ZBX_VAULTDBPATH` the DB user and password come from Vault, so `MYSQL_PASSWORD` is not needed),
+  and HA
   (`ZBX_HANODENAME`, `ZBX_AUTOHANODENAME`, `ZBX_NODEADDRESS`, `ZBX_AUTONODEADDRESS`). The config
   file is `0600` because it holds the DB password; the server starts as root only to
   fix ownership, then runs as `zabbix`. `fping` is included (give the container `NET_RAW`).
 - **zabbix-agent2**: `ZBX_HOSTNAME`, `ZBX_SERVER_HOST/PORT`, `ZBX_PASSIVESERVERS`,
   `ZBX_ACTIVESERVERS`, `ZBX_PASSIVE_ALLOW`, `ZBX_ACTIVE_ALLOW`, `ZBX_ENABLEPERSISTENTBUFFER`,
-  `ZBX_ENABLESTATUSPORT`, `ZBX_ALLOWKEY/DENYKEY`, TLS (path or content), and the other agent2
-  parameters as `ZBX_<Parameter>`.
+  `ZBX_ENABLESTATUSPORT`, `ZBX_ALLOWKEY/DENYKEY`, TLS (path or content, and the cipher suites
+  `ZBX_TLSCIPHER*`), `ZBX_HEARTBEAT_FREQUENCY`, and the other agent2 parameters as
+  `ZBX_<Parameter>`. `ZBX_ALIAS` (the official image does not allow it either: mount a file
+  with `Alias=` lines instead), `ZBX_ENABLEREMOTECOMMANDS` (deprecated; use `ZBX_ALLOWKEY` /
+  `ZBX_DENYKEY`) and `ZBX_EVENTLOGMAXLINESPERSECOND` (Windows only) are reported and ignored.
 - **zabbix-web**: `DB_SERVER_HOST/PORT`, `MYSQL_*` (and `*_FILE`), `ZBX_SERVER_HOST/PORT/NAME`,
   `PHP_TZ`, PHP limits (`ZBX_MAXEXECUTIONTIME`, `ZBX_MEMORYLIMIT`, `ZBX_POSTMAXSIZE`,
   `ZBX_UPLOADMAXFILESIZE`, `ZBX_MAXINPUTTIME`, `ZBX_SESSION_NAME`), `PHP_FPM_PM*`, DB TLS
   (`ZBX_DB_ENCRYPTION`, `ZBX_DB_*_FILE`, `ZBX_DB_VERIFY_HOST`, `ZBX_DB_CIPHER_LIST`),
-  `DB_DOUBLE_IEEE754`, Vault (`ZBX_VAULTURL`, `ZBX_VAULTDBPATH`, `VAULT_TOKEN`), history storage,
-  SSO files, `ENABLE_WEB_ACCESS_LOG`, `EXPOSE_WEB_SERVER_INFO`, `HTTP_INDEX_FILE`,
+  `DB_DOUBLE_IEEE754`, Vault (`ZBX_VAULT`, `ZBX_VAULTURL`, `ZBX_VAULTDBPATH`, `ZBX_VAULTPREFIX`,
+  `ZBX_VAULTCERTFILE`, `ZBX_VAULTKEYFILE`, `ZBX_VAULTCACHE`, `VAULT_TOKEN`), history storage,
+  SSO (`ZBX_SSO_SP_KEY/SP_CERT/IDP_CERT` and `ZBX_SSO_SETTINGS`), `ZBX_ALLOW_HTTP_AUTH`,
+  `ENABLE_WEB_ACCESS_LOG`, `EXPOSE_WEB_SERVER_INFO`, `HTTP_INDEX_FILE`,
   `WEB_REAL_IP_FROM/HEADER`, and `ZBX_DENY_GUI_ACCESS` / `ZBX_GUI_ACCESS_IP_RANGE` /
   `ZBX_GUI_WARNING_MSG`. HTTPS: mount `ssl.crt` and `ssl.key` (optionally `dhparam.pem`)
   at `/etc/ssl/nginx` and the image also listens on 8443.

@@ -60,7 +60,12 @@ secret_value MYSQL_USER zabbix
 DB_USER="${secret_result}"
 secret_value MYSQL_PASSWORD ""
 DB_PASSWORD="${secret_result}"
-[ -n "${DB_PASSWORD}" ] || fail "MYSQL_PASSWORD (or MYSQL_PASSWORD_FILE) is not set. This variable is mandatory for Zabbix web to connect to the database."
+# Vault(VAULT_TOKEN と ZBX_VAULTURL が揃っているとき)は、フロントエンドがDBのユーザー名・パスワードを
+# Vaultから取る。そのときは MYSQL_PASSWORD は要らず、設定ファイルのDBUSER/PASSWORDは空にする(公式と同じ)。
+VAULT_ON=false
+if [ -n "${VAULT_TOKEN:-}" ] && [ -n "${ZBX_VAULTURL:-}" ]; then VAULT_ON=true; fi
+if [ "${VAULT_ON}" = true ]; then DB_USER=""; DB_PASSWORD=""; fi
+[ -n "${DB_PASSWORD}" ] || [ "${VAULT_ON}" = true ] || fail "MYSQL_PASSWORD (or MYSQL_PASSWORD_FILE) is not set. This variable is mandatory for Zabbix web to connect to the database."
 
 DB_HOST="${DB_SERVER_HOST:-mysql-server}"
 DB_PORT="${DB_SERVER_PORT:-3306}"
@@ -152,11 +157,20 @@ global \$DB, \$HISTORY, \$SSO;
 
 \$IMAGE_FORMAT_DEFAULT = IMAGE_FORMAT_PNG;
 CONF
-	# Vault(フロントエンドは3つ揃ったときだけ使う)。
+	# Vault(フロントエンドは ZBX_VAULTURL と VAULT_TOKEN が揃ったときだけ使う)。ZBX_VAULT は
+	# HashiCorp か CyberArk、ZBX_VAULTCERTFILE / ZBX_VAULTKEYFILE は証明書・鍵のパス(CyberArk用)、
+	# ZBX_VAULTCACHE は取得した認証情報のキャッシュ(true/false)。
 	if [ -n "${ZBX_VAULTURL:-}" ]; then
+		echo "\$DB['VAULT']         = '$(php_quote "${ZBX_VAULT:-}")';"
 		echo "\$DB['VAULT_URL']     = '$(php_quote "${ZBX_VAULTURL}")';"
+		echo "\$DB['VAULT_PREFIX']  = '$(php_quote "${ZBX_VAULTPREFIX:-}")';"
 		echo "\$DB['VAULT_DB_PATH'] = '$(php_quote "${ZBX_VAULTDBPATH:-}")';"
 		echo "\$DB['VAULT_TOKEN']   = '$(php_quote "${VAULT_TOKEN:-}")';"
+		[ -z "${ZBX_VAULTCERTFILE:-}" ] || echo "\$DB['VAULT_CERT_FILE'] = '$(php_quote "${ZBX_VAULTCERTFILE}")';"
+		[ -z "${ZBX_VAULTKEYFILE:-}" ] || echo "\$DB['VAULT_KEY_FILE']  = '$(php_quote "${ZBX_VAULTKEYFILE}")';"
+		if is_true "${ZBX_VAULTCACHE:-}"; then
+			echo "\$DB['VAULT_CACHE']    = true;"
+		fi
 	fi
 	if [ -n "${ZBX_HISTORYSTORAGEURL:-}" ]; then
 		echo "\$HISTORY['url'] = '$(php_quote "${ZBX_HISTORYSTORAGEURL}")';"
@@ -169,6 +183,20 @@ CONF
 	[ -z "${ZBX_SSO_SP_KEY:-}" ] || echo "\$SSO['SP_KEY'] = '$(php_quote "${ZBX_SSO_SP_KEY}")';"
 	[ -z "${ZBX_SSO_SP_CERT:-}" ] || echo "\$SSO['SP_CERT'] = '$(php_quote "${ZBX_SSO_SP_CERT}")';"
 	[ -z "${ZBX_SSO_IDP_CERT:-}" ] || echo "\$SSO['IDP_CERT'] = '$(php_quote "${ZBX_SSO_IDP_CERT}")';"
+	# SAMLの追加設定(JSON。単一引用符で書かれていても読めるよう、公式と同じく ' を " に直してから解釈する)。
+	# 解釈できない値は無視する(空の配列)。
+	if [ -n "${ZBX_SSO_SETTINGS:-}" ]; then
+		_sso="$(printf '%s' "${ZBX_SSO_SETTINGS}" | tr "'" '"')"
+		echo "\$SSO['SETTINGS'] = json_decode('$(php_quote "${_sso}")', true);"
+		echo "if (!is_array(\$SSO['SETTINGS'])) { \$SSO['SETTINGS'] = []; }"
+	fi
+	# HTTP認証の許可(Zabbixの既定は許可)。公式と同じく 1/true/on/yes を真、それ以外を偽とする。
+	if [ -n "${ZBX_ALLOW_HTTP_AUTH:-}" ]; then
+		case "$(lower "${ZBX_ALLOW_HTTP_AUTH}")" in
+			1 | true | on | yes) echo "\$ALLOW_HTTP_AUTH = true;" ;;
+			*) echo "\$ALLOW_HTTP_AUTH = false;" ;;
+		esac
+	fi
 } > "${CONFIG_FILE}"
 umask 022
 

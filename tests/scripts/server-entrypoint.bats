@@ -171,13 +171,76 @@ conf_lacks() { ! grep -qE -- "$1" "${CONF}"; }
 	conf_lacks '^(StartPollers|CacheSize)='
 }
 
-@test "Vault: ZBX_VAULTURL/ZBX_VAULTDBPATHは設定へ、VAULT_TOKENは環境のままzabbix_serverへ渡る" {
-	run_entrypoint MYSQL_PASSWORD=p ZBX_VAULTURL=https://vault:8200 ZBX_VAULTDBPATH=secret/zabbix VAULT_TOKEN=tok
+@test "Vault: ZBX_VAULT・ZBX_VAULTURL・ZBX_VAULTDBPATHは設定へ、VAULT_TOKENは環境のままzabbix_serverへ渡る" {
+	run_entrypoint ZBX_VAULT=HashiCorp ZBX_VAULTURL=https://vault:8200 ZBX_VAULTDBPATH=secret/zabbix VAULT_TOKEN=tok
 	[ "$status" -eq 0 ]
+	conf_has "Vault=HashiCorp"
 	conf_has "VaultURL=https://vault:8200"
 	conf_has "VaultDBPath=secret/zabbix"
 	conf_lacks 'tok'
 	grep -qx "VAULT_TOKEN" "${TEST_TMPDIR}/server-env.log"
+}
+
+@test "Vault(7.0): VaultPrefix・VaultTLSCertFile・VaultTLSKeyFileも設定へ書かれ、パスはそのまま渡る" {
+	run_entrypoint ZBX_VAULT=CyberArk ZBX_VAULTURL=https://cyberark ZBX_VAULTDBPATH='AppID=zbx&Query=Safe=S' \
+		ZBX_VAULTPREFIX=/AIM/api/Accounts? ZBX_VAULTTLSCERTFILE=/certs/vault.crt ZBX_VAULTTLSKEYFILE=/certs/vault.key
+	[ "$status" -eq 0 ]
+	conf_has "Vault=CyberArk"
+	conf_has "VaultPrefix=/AIM/api/Accounts?"
+	conf_has "VaultTLSCertFile=/certs/vault.crt"
+	conf_has "VaultTLSKeyFile=/certs/vault.key"
+}
+
+@test "Vault(7.0): DBの認証情報をVaultから取る(ZBX_VAULTDBPATHあり)ときは、MYSQL_PASSWORD無しで起動し、DBUser/DBPasswordは書かない" {
+	run_entrypoint ZBX_VAULT=HashiCorp ZBX_VAULTURL=https://vault:8200 ZBX_VAULTDBPATH=secret/zabbix VAULT_TOKEN=tok
+	[ "$status" -eq 0 ]
+	conf_lacks '^DBUser='
+	conf_lacks '^DBPassword='
+	[ -f "${TEST_TMPDIR}/started.log" ]
+}
+
+@test "Vault(7.0): ZBX_VAULTDBPATHが無いときは、従来どおりMYSQL_PASSWORDが必須で、DBUser/DBPasswordも書く" {
+	run_entrypoint ZBX_VAULT=HashiCorp ZBX_VAULTURL=https://vault:8200
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"MYSQL_PASSWORD"* ]]
+
+	run_entrypoint MYSQL_PASSWORD=p ZBX_VAULT=HashiCorp ZBX_VAULTURL=https://vault:8200
+	[ "$status" -eq 0 ]
+	conf_has "DBPassword=p"
+	conf_has "Vault=HashiCorp"
+}
+
+@test "Vault(7.0): ZBX_VAULT と ZBX_VAULTURL の両方が無ければVaultの設定は書かず、無視した旨を警告する(公式と同じ)" {
+	run_entrypoint MYSQL_PASSWORD=p ZBX_VAULTURL=https://vault:8200 ZBX_VAULTDBPATH=secret/zabbix
+	[ "$status" -eq 0 ]
+	conf_lacks '^Vault'
+	conf_has "DBPassword=p"
+	[[ "$output" == *"ZBX_VAULTURL is set but ZBX_VAULT and ZBX_VAULTURL are not both set"* ]]
+	# 知らない変数としての警告("not supported")にはならない
+	[[ "$output" != *"ZBX_VAULTURL is set but is not supported"* ]]
+}
+
+@test "7.0で増えた公式の変数(ポーラー・コネクタ・ブラウザ・WebDriver・スクリプト・更新確認など)が設定へ書かれる" {
+	run_entrypoint MYSQL_PASSWORD=p ZBX_STARTAGENTPOLLERS=3 ZBX_STARTHTTPAGENTPOLLERS=4 ZBX_STARTSNMPPOLLERS=5 \
+		ZBX_STARTCONNECTORS=6 ZBX_STARTBROWSERPOLLERS=2 ZBX_WEBDRIVERURL=http://chrome:4444 \
+		ZBX_MAXCONCURRENTCHECKSPERPOLLER=77 ZBX_ENABLEGLOBALSCRIPTS=0 ZBX_ALLOWSOFTWAREUPDATECHECK=0
+	[ "$status" -eq 0 ]
+	conf_has "StartAgentPollers=3"
+	conf_has "StartHTTPAgentPollers=4"
+	conf_has "StartSNMPPollers=5"
+	conf_has "StartConnectors=6"
+	conf_has "StartBrowserPollers=2"
+	conf_has "WebDriverURL=http://chrome:4444"
+	conf_has "MaxConcurrentChecksPerPoller=77"
+	conf_has "EnableGlobalScripts=0"
+	conf_has "AllowSoftwareUpdateCheck=0"
+	[[ "$output" != *"not supported"* ]]
+}
+
+@test "7.0で増えた変数は、指定しなければ設定に出ない(Zabbixの既定のまま)" {
+	run_entrypoint MYSQL_PASSWORD=p
+	[ "$status" -eq 0 ]
+	conf_lacks '^(StartAgentPollers|StartHTTPAgentPollers|StartSNMPPollers|StartConnectors|StartBrowserPollers|WebDriverURL|MaxConcurrentChecksPerPoller|EnableGlobalScripts|AllowSoftwareUpdateCheck|Vault)'
 }
 
 @test "ZBX_LOADMODULE はカンマ区切りで、LoadModulePathと各LoadModuleになる" {

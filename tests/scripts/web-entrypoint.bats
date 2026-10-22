@@ -165,6 +165,61 @@ srv_has() { grep -qxF -- "$1" "${NGX}/server.conf"; }
 	php_has "\$SSO['IDP_CERT'] = '/i';"
 }
 
+@test "Vault(7.0): ZBX_VAULT・ZBX_VAULTPREFIX・証明書/鍵・キャッシュも書かれ、DBのユーザー名/パスワードは空になる(公式と同じ)" {
+	run_entrypoint ZBX_VAULT=CyberArk ZBX_VAULTURL=https://cyberark ZBX_VAULTDBPATH='AppID=zbx' VAULT_TOKEN=tok \
+		ZBX_VAULTPREFIX=/AIM/api/Accounts? ZBX_VAULTCERTFILE=/certs/v.crt ZBX_VAULTKEYFILE=/certs/v.key \
+		ZBX_VAULTCACHE=true MYSQL_USER=u
+	[ "$status" -eq 0 ]
+	php_has "\$DB['VAULT']         = 'CyberArk';"
+	php_has "\$DB['VAULT_PREFIX']  = '/AIM/api/Accounts?';"
+	php_has "\$DB['VAULT_CERT_FILE'] = '/certs/v.crt';"
+	php_has "\$DB['VAULT_KEY_FILE']  = '/certs/v.key';"
+	php_has "\$DB['VAULT_CACHE']    = true;"
+	php_has "\$DB['USER']     = '';"
+	php_has "\$DB['PASSWORD'] = '';"
+}
+
+@test "Vault(7.0): VAULT_TOKEN と ZBX_VAULTURL があれば、MYSQL_PASSWORD が無くても起動する。無ければ従来どおり必須" {
+	run env -i PATH="${STUB_BIN}:${PATH}" HOME="${TEST_TMPDIR}" ZBX_VAULT=HashiCorp ZBX_VAULTURL=https://v:8200 \
+		ZBX_VAULTDBPATH=secret/zbx VAULT_TOKEN=tok bash "${SCRIPT}"
+	[ "$status" -eq 0 ]
+
+	run env -i PATH="${STUB_BIN}:${PATH}" HOME="${TEST_TMPDIR}" ZBX_VAULT=HashiCorp ZBX_VAULTURL=https://v:8200 bash "${SCRIPT}"
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"MYSQL_PASSWORD"* ]]
+}
+
+@test "Vault(7.0): ZBX_VAULTCACHE が偽ならVAULT_CACHEは書かない(Zabbixの既定=偽)" {
+	run_entrypoint ZBX_VAULTURL=https://vault:8200 VAULT_TOKEN=tok ZBX_VAULTCACHE=false
+	[ "$status" -eq 0 ]
+	! grep -q "VAULT_CACHE" "${PHPCONF}"
+}
+
+@test "ZBX_SSO_SETTINGS: 単一引用符で書かれたJSONも、' を \" に直してPHPの配列として読む。壊れた値は空の配列になる" {
+	run_entrypoint "ZBX_SSO_SETTINGS={'baseurl': 'https://zbx.example.com', 'use_proxy_headers': true, 'strict': false}"
+	[ "$status" -eq 0 ]
+	php_has "\$SSO['SETTINGS'] = json_decode('{\"baseurl\": \"https://zbx.example.com\", \"use_proxy_headers\": true, \"strict\": false}', true);"
+	php_has "if (!is_array(\$SSO['SETTINGS'])) { \$SSO['SETTINGS'] = []; }"
+
+	run_entrypoint
+	! grep -q "SETTINGS" "${PHPCONF}"
+}
+
+@test "ZBX_ALLOW_HTTP_AUTH: 1/true/on/yes は真、それ以外は偽。指定しなければ書かない(Zabbixの既定=許可)" {
+	for v in true TRUE 1 on yes; do
+		run_entrypoint ZBX_ALLOW_HTTP_AUTH="${v}"
+		[ "$status" -eq 0 ]
+		php_has "\$ALLOW_HTTP_AUTH = true;"
+	done
+	for v in false 0 off no nope; do
+		run_entrypoint ZBX_ALLOW_HTTP_AUTH="${v}"
+		[ "$status" -eq 0 ]
+		php_has "\$ALLOW_HTTP_AUTH = false;"
+	done
+	run_entrypoint
+	! grep -q "ALLOW_HTTP_AUTH" "${PHPCONF}"
+}
+
 @test "nginx: アクセスログ無効・サーバー情報非表示・index・real_ip が反映される" {
 	run_entrypoint ENABLE_WEB_ACCESS_LOG=false EXPOSE_WEB_SERVER_INFO=off HTTP_INDEX_FILE=index.html \
 		WEB_REAL_IP_FROM=10.0.0.0/8,192.168.0.1 WEB_REAL_IP_HEADER=X-Real-IP
