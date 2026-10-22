@@ -11,9 +11,22 @@
 # Do not add entries to get a red build green. Add one only after reading the flagged line
 # and confirming it is not a credential, and say why in a comment here.
 
-# Go unit-test fixture: a fixed UUID used as a sample password. (3)
-
 # Upstream template data (SQL): Acronis item names/keys such as 'get_token', and a fixed
 # 'X-Application-Secret: <UUID>' header value from the same template. That value is a vendor
 # constant identical in all three DB dumps and shipped publicly in every Zabbix release; it is
 # not a credential of this project. (15)
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/mysql/data.sql:generic-api-key:9987
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/mysql/data.sql:generic-api-key:9988
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/mysql/data.sql:generic-api-key:9989
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/mysql/data.sql:generic-api-key:9990
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/mysql/data.sql:generic-api-key:9992
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/postgresql/data.sql:generic-api-key:54694
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/postgresql/data.sql:generic-api-key:54697
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/postgresql/data.sql:generic-api-key:54700
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/postgresql/data.sql:generic-api-key:54703
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/postgresql/data.sql:generic-api-key:54833
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/oracle/data.sql:generic-api-key:40946
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/oracle/data.sql:generic-api-key:40950
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/oracle/data.sql:generic-api-key:40954
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/oracle/data.sql:generic-api-key:40958
+2e78f4b59e65bcea76effdccd710ca7ee3acfe46:sources/zabbix-7.0.32/database/oracle/data.sql:generic-api-key:40970

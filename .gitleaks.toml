@@ -21,4 +21,9 @@ paths = [
   '''(^|/)vendor/onelogin/php-saml/src/Saml2/Utils\.php$''',
   # Zabbix's dictionary of commonly used weak passwords, which it refuses; public by design.
   '''(^|/)data/top_passwords\.txt$''',
+  # Sample values in upstream vendor libraries' documentation and tests (not credentials):
+  # a JWT example for https://example.com, the RSA key printed in php-jwt's README, and the test
+  # host name api-123456.duo.com. They are also in the built image, which has no commit to fingerprint.
+  '''(^|/)vendor/duosecurity/duo_universal_php/(README\.md|tests/ClientTest\.php)$''',
+  '''(^|/)vendor/firebase/php-jwt/README\.md$''',
 ]
