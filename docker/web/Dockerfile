@@ -48,8 +48,11 @@ RUN curl -fsSL -o php.tar.xz "https://www.php.net/distributions/php-${PHP_VERSIO
 
 # --disable-all から、Zabbixが必要とする拡張だけを足す。Alpineのphp85パッケージと
 # 同じ集合(bcmath ctype dom fileinfo filter gd gettext iconv mbstring mysqli mysqlnd openssl session
-# sockets tokenizer xml xmlreader xmlwriter zlib phar)で、curl・ftp・sodium・
-# sqlite3などZabbixが使わない拡張は含めない。拡張は共有ライブラリではなくPHP本体に組み込む。
+# sockets tokenizer xml xmlreader xmlwriter zlib phar)に、simplexmlを足したもの。
+# simplexmlは構成のXMLインポート(ui/include/classes/import/readers/CXmlImportReader.php と
+# ui/include/classes/validators/CApiInputValidator.php が simplexml_load_string() を呼ぶ)に要り、
+# 無いとXMLのインポートが「Call to undefined function」で落ちる(6.0のWeb UIテストで見つかった)。
+# curl・ftp・sodium・sqlite3などZabbixが使わない拡張は含めない。拡張は共有ライブラリではなくPHP本体に組み込む。
 # OPcacheはPHP 8.5から常にPHP本体へ組み込まれる(configureのフラグもopcache.soも不要)。
 # 配置はAlpineのパッケージに合わせ(/etc/php85、php85・php-fpm85)、entrypoint.shの変更を最小にしている。
 RUN ./configure \
@@ -66,7 +69,7 @@ RUN ./configure \
 		--with-gettext --with-iconv --enable-mbstring \
 		--enable-mysqlnd --with-mysqli=mysqlnd --with-mysql-sock=/run/mysqld/mysqld.sock \
 		--with-openssl --enable-session --enable-sockets --enable-tokenizer \
-		--enable-xml --enable-xmlreader --enable-xmlwriter --with-libxml \
+		--enable-xml --enable-xmlreader --enable-xmlwriter --enable-simplexml --with-libxml \
 		--with-zlib --with-external-pcre --enable-phar \
 	&& make -j"$(nproc)" \
 	&& make install-cli install-fpm INSTALL_ROOT=/php-root \
